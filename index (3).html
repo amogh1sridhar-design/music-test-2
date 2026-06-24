@@ -1,0 +1,2110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumina — Immersive Music Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,900;1,400&family=Bebas+Neue&family=Dancing+Script:wght@600;700&family=Raleway:wght@100;200;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.2/dist/gsap.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Space Grotesk', sans-serif;
+      cursor: none;
+    }
+
+    /* ─── Custom cursor ─── */
+    #cursor {
+      position: fixed;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.9);
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%,-50%);
+      transition: width 0.2s, height 0.2s, background 0.2s;
+      mix-blend-mode: difference;
+    }
+    #cursor-ring {
+      position: fixed;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.4);
+      pointer-events: none;
+      z-index: 9998;
+      transform: translate(-50%,-50%);
+      transition: width 0.3s, height 0.3s, border-color 0.3s;
+    }
+
+    /* ─── Three.js canvas ─── */
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* ─── Lyrics stage ─── */
+    #lyrics-stage {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    .lyric-line {
+      position: absolute;
+      text-align: center;
+      max-width: 85vw;
+      pointer-events: none;
+      line-height: 1.2;
+      opacity: 0;
+      will-change: transform, opacity;
+      white-space: pre-wrap;
+      padding: 6px 18px 8px;
+      /* Subtle dark halo so text stays legible over any visual */
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0.45) 0%, transparent 75%);
+      border-radius: 12px;
+    }
+
+    /* ─── Frequency bars ─── */
+    #freq-bars {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 80px;
+      z-index: 5;
+      display: flex;
+      align-items: flex-end;
+      gap: 1px;
+      padding: 0 1px;
+      opacity: 0.25;
+      pointer-events: none;
+    }
+
+    .freq-bar {
+      flex: 1;
+      background: linear-gradient(to top, #7b2fff, #00d4ff, #ff0090);
+      border-radius: 2px 2px 0 0;
+      min-height: 2px;
+      transition: height 0.04s linear;
+    }
+
+    /* ─── UI panel ─── */
+    #ui-panel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 24px 28px 28px;
+      background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.3) 60%, transparent 100%);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    #ui-panel.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(10px);
+    }
+
+    /* ─── Search ─── */
+    #search-area {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 18px;
+      position: relative;
+    }
+
+    #search-input {
+      flex: 1;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50px;
+      padding: 13px 22px;
+      color: #fff;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      outline: none;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    #search-input::placeholder { color: rgba(255,255,255,0.35); }
+    #search-input:focus {
+      border-color: rgba(123,47,255,0.7);
+      background: rgba(255,255,255,0.12);
+    }
+
+    #search-btn {
+      background: rgba(123,47,255,0.3);
+      border: 1px solid rgba(123,47,255,0.5);
+      border-radius: 50px;
+      padding: 13px 26px;
+      color: #fff;
+      cursor: pointer;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      backdrop-filter: blur(12px);
+      transition: background 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+
+    #search-btn:hover {
+      background: rgba(123,47,255,0.55);
+      border-color: rgba(123,47,255,0.8);
+    }
+
+    /* ─── Search results ─── */
+    #search-results {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 0; right: 0;
+      background: rgba(8,6,24,0.92);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      backdrop-filter: blur(24px);
+      max-height: 320px;
+      overflow-y: auto;
+      display: none;
+      z-index: 200;
+      box-shadow: 0 -20px 60px rgba(0,0,0,0.6);
+    }
+
+    #search-results.visible { display: block; }
+
+    .track-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 13px 18px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: background 0.15s;
+    }
+
+    .track-item:last-child { border-bottom: none; }
+    .track-item:first-child { border-radius: 20px 20px 0 0; }
+    .track-item:last-child { border-radius: 0 0 20px 20px; }
+    .track-item:only-child { border-radius: 20px; }
+    .track-item:hover { background: rgba(123,47,255,0.15); }
+
+    .track-art {
+      width: 46px; height: 46px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: rgba(255,255,255,0.06);
+      flex-shrink: 0;
+    }
+
+    .track-info { flex: 1; min-width: 0; }
+
+    .track-name {
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-artist {
+      color: rgba(255,255,255,0.45);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .track-duration {
+      color: rgba(255,255,255,0.3);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    /* ─── Controls row ─── */
+    #controls-row {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    /* ─── Now playing ─── */
+    #now-playing {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    #now-art {
+      width: 50px; height: 50px;
+      border-radius: 12px;
+      object-fit: cover;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+
+    #now-title {
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      max-width: 160px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #now-artist {
+      color: rgba(255,255,255,0.45);
+      font-size: 11px;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 160px;
+    }
+
+    /* ─── Playback ─── */
+    #playback-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ctrl-btn {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.85);
+      cursor: pointer;
+      padding: 10px;
+      border-radius: 50%;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(10px);
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+      border-color: rgba(255,255,255,0.25);
+    }
+
+    .ctrl-btn svg { width: 18px; height: 18px; fill: currentColor; }
+    #play-btn { padding: 14px; }
+    #play-btn svg { width: 22px; height: 22px; }
+
+    /* ─── Progress ─── */
+    #progress-area {
+      flex: 2;
+      min-width: 200px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .time-label {
+      color: rgba(255,255,255,0.4);
+      font-size: 11px;
+      white-space: nowrap;
+      min-width: 34px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #progress-bar {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 4px;
+      cursor: pointer;
+      position: relative;
+    }
+
+    #progress-bar::after {
+      content: '';
+      position: absolute;
+      inset: -6px;
+    }
+
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #7b2fff, #00d4ff);
+      border-radius: 4px;
+      width: 0%;
+      pointer-events: none;
+      position: relative;
+    }
+
+    #progress-fill::after {
+      content: '';
+      position: absolute;
+      right: -4px; top: -4px;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(123,47,255,0.8);
+    }
+
+    /* ─── Volume ─── */
+    #volume-area {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #vol-icon { color: rgba(255,255,255,0.45); display: flex; }
+    #vol-icon svg { width: 16px; height: 16px; fill: currentColor; }
+
+    #volume-slider {
+      width: 80px;
+      -webkit-appearance: none;
+      height: 3px;
+      background: rgba(255,255,255,0.18);
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    #volume-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(123,47,255,0.6);
+    }
+
+    /* ─── Theme selector ─── */
+    #theme-selector {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 1;
+      overflow-x: auto;
+      max-width: 100%;
+      padding-bottom: 4px;
+      scrollbar-width: thin;
+    }
+    #theme-selector::-webkit-scrollbar { height: 4px; }
+    #theme-selector::-webkit-scrollbar-thumb { background: rgba(123,47,255,0.4); border-radius: 4px; }
+    .theme-btn { flex-shrink: 0; }
+
+    #mood-label {
+      position: fixed;
+      top: 38px; left: 20px;
+      z-index: 110;
+      font-size: 10px;
+      color: rgba(123,47,255,0.6);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .theme-btn {
+      padding: 7px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: rgba(255,255,255,0.5);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      letter-spacing: 0.03em;
+    }
+
+    .theme-btn:hover {
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.8);
+    }
+
+    .theme-btn.active {
+      background: rgba(123,47,255,0.3);
+      border-color: rgba(123,47,255,0.6);
+      color: #fff;
+    }
+
+    /* ─── Scrollbar ─── */
+    #search-results::-webkit-scrollbar { width: 4px; }
+    #search-results::-webkit-scrollbar-track { background: transparent; }
+    #search-results::-webkit-scrollbar-thumb { background: rgba(123,47,255,0.4); border-radius: 4px; }
+
+    /* ─── Toast ─── */
+    #toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-80px);
+      background: rgba(14,10,32,0.92);
+      border: 1px solid rgba(123,47,255,0.4);
+      border-radius: 50px;
+      padding: 10px 22px;
+      color: rgba(255,255,255,0.85);
+      font-size: 13px;
+      z-index: 500;
+      backdrop-filter: blur(16px);
+      transition: transform 0.45s cubic-bezier(0.34,1.56,0.64,1);
+      white-space: nowrap;
+    }
+
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ─── Loading ─── */
+    #loading {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    #loading.visible { opacity: 1; pointer-events: all; }
+
+    .spinner {
+      width: 44px; height: 44px;
+      border: 2px solid rgba(123,47,255,0.2);
+      border-top-color: rgba(123,47,255,0.9);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Lyrics info strip ─── */
+    #lyrics-status {
+      position: fixed;
+      top: 20px; right: 22px;
+      z-index: 110;
+      font-size: 10px;
+      color: rgba(255,255,255,0.25);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: opacity 0.4s;
+      pointer-events: none;
+    }
+
+    /* ─── Waveform rings ─── */
+    #waveform-rings {
+      position: fixed;
+      inset: 0;
+      z-index: 3;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .wave-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(123,47,255,0.2);
+      opacity: 0;
+      animation: none;
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 700px) {
+      #controls-row { gap: 12px; }
+      #progress-area { min-width: 120px; }
+      #volume-area { display: none; }
+      #now-title, #now-artist { max-width: 100px; }
+      #theme-selector { gap: 4px; }
+      .theme-btn { padding: 6px 10px; font-size: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="cursor"></div>
+  <div id="cursor-ring"></div>
+
+  <canvas id="bg-canvas"></canvas>
+
+  <div id="lyrics-stage"></div>
+  <div id="freq-bars"></div>
+  <div id="waveform-rings"></div>
+  <div id="lyrics-status"></div>
+  <div id="loading"><div class="spinner"></div></div>
+  <div id="toast"></div>
+
+  <div id="ui-panel">
+    <div id="search-area">
+      <div id="search-results"></div>
+      <input type="text" id="search-input" placeholder="Search any artist or song… (Taylor Swift, Drake, Radiohead…)" autocomplete="off" spellcheck="false">
+      <button id="search-btn">Search</button>
+    </div>
+
+    <div id="controls-row">
+      <div id="now-playing">
+        <img id="now-art" src="" alt="">
+        <div>
+          <div id="now-title">No track loaded</div>
+          <div id="now-artist">Search above to begin</div>
+        </div>
+      </div>
+
+      <div id="playback-controls">
+        <button class="ctrl-btn" id="play-btn" title="Play / Pause (Space)">
+          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+      </div>
+
+      <div id="progress-area">
+        <span class="time-label" id="time-current">0:00</span>
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <span class="time-label" id="time-total">0:00</span>
+      </div>
+
+      <div id="volume-area">
+        <div id="vol-icon">
+          <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+        </div>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8">
+      </div>
+
+      <button class="ctrl-btn" id="upload-btn" title="Play a song from your device">
+        <svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+      </button>
+      <input type="file" id="file-input" accept="audio/*,.lrc" multiple style="display:none">
+
+      <div id="theme-selector">
+        <button class="theme-btn active" id="auto-btn" title="Auto-match visuals to the music">🎯 Auto</button>
+        <button class="theme-btn" data-theme="0">✦ Vortex</button>
+        <button class="theme-btn" data-theme="1">☁ Clouds</button>
+        <button class="theme-btn" data-theme="2">◈ Crystal</button>
+        <button class="theme-btn" data-theme="3">❀ Floral</button>
+        <button class="theme-btn" data-theme="4">🌌 Aurora</button>
+        <button class="theme-btn" data-theme="5">◎ Tunnel</button>
+        <button class="theme-btn" data-theme="6">✷ Fireflies</button>
+        <button class="theme-btn" data-theme="7">☄ Nebula</button>
+        <button class="theme-btn" data-theme="8">∿ Plasma</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mood-label"></div>
+
+  <audio id="player" crossorigin="anonymous" preload="auto"></audio>
+
+  <script>
+  // ════════════════════════════════════════════════
+  // CONFIG
+  // ════════════════════════════════════════════════
+  // iTunes Search API — no key needed, covers all mainstream music (30s previews)
+
+  const LYRIC_FONTS = [
+    "'Playfair Display', serif",
+    "'Bebas Neue', cursive",
+    "'Dancing Script', cursive",
+    "'Raleway', sans-serif",
+    "'Space Grotesk', sans-serif",
+    "'Playfair Display', serif",   // weighted double for elegance
+  ];
+
+  const LYRIC_ANIMS = ['scaleUp', 'slideLeft', 'slideRight', 'slideUp', 'slideDown', 'spinIn', 'glitch'];
+
+  const THEME_COLORS = [
+    { bg: [0.01, 0.003, 0.04],  accent: '#7b2fff', alt: '#00d4ff' },
+    { bg: [0.0,  0.01,  0.05],  accent: '#00d4ff', alt: '#80e8ff' },
+    { bg: [0.02, 0.0,   0.04],  accent: '#ff0090', alt: '#ffcc00' },
+  ];
+
+  // ════════════════════════════════════════════════
+  // STATE
+  // ════════════════════════════════════════════════
+  let audioCtx, analyser, dataArray, bufferLength;
+  let smoothBass = 0, smoothMid = 0, smoothTreble = 0;
+  let rawBass = 0, rawMid = 0, rawTreble = 0;
+  let lyrics = [], currentLyricIdx = -1;
+  let currentTheme = 0, activeThemeObj = null;
+  let isPlaying = false, uiHideTimer = null;
+  let activeLyricEl = null;
+  let mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+  let cursorX = mouseX, cursorY = mouseY;
+  let ringX = mouseX, ringY = mouseY;
+
+  // ════════════════════════════════════════════════
+  // ELEMENTS
+  // ════════════════════════════════════════════════
+  const canvas        = document.getElementById('bg-canvas');
+  const lyricsStage   = document.getElementById('lyrics-stage');
+  const uiPanel       = document.getElementById('ui-panel');
+  const player        = document.getElementById('player');
+  const searchInput   = document.getElementById('search-input');
+  const searchBtn     = document.getElementById('search-btn');
+  const searchResults = document.getElementById('search-results');
+  const playBtn       = document.getElementById('play-btn');
+  const progressBar   = document.getElementById('progress-bar');
+  const progressFill  = document.getElementById('progress-fill');
+  const timeCurrent   = document.getElementById('time-current');
+  const timeTotal     = document.getElementById('time-total');
+  const volumeSlider  = document.getElementById('volume-slider');
+  const nowArt        = document.getElementById('now-art');
+  const nowTitle      = document.getElementById('now-title');
+  const nowArtist     = document.getElementById('now-artist');
+  const loadingEl     = document.getElementById('loading');
+  const toastEl       = document.getElementById('toast');
+  const freqBarsEl    = document.getElementById('freq-bars');
+  const lyricsStatus  = document.getElementById('lyrics-status');
+  const waveRingsEl   = document.getElementById('waveform-rings');
+  const cursorDot     = document.getElementById('cursor');
+  const cursorRing    = document.getElementById('cursor-ring');
+
+  // ════════════════════════════════════════════════
+  // THREE.JS RENDERER
+  // ════════════════════════════════════════════════
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x030010, 1);
+
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 2000);
+  camera.position.z = 35;
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // ════════════════════════════════════════════════
+  // CUSTOM CURSOR
+  // ════════════════════════════════════════════════
+  document.addEventListener('mousemove', e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+  });
+
+  function animateCursor() {
+    cursorX += (mouseX - cursorX) * 0.25;
+    cursorY += (mouseY - cursorY) * 0.25;
+    ringX   += (mouseX - ringX)   * 0.1;
+    ringY   += (mouseY - ringY)   * 0.1;
+
+    cursorDot.style.left  = cursorX + 'px';
+    cursorDot.style.top   = cursorY + 'px';
+    cursorRing.style.left = ringX + 'px';
+    cursorRing.style.top  = ringY + 'px';
+
+    // Scale ring with bass
+    const s = 1 + smoothBass * 1.5;
+    cursorRing.style.transform = `translate(-50%,-50%) scale(${s})`;
+    cursorRing.style.borderColor = `rgba(123,47,255,${0.3 + smoothBass * 0.5})`;
+
+    requestAnimationFrame(animateCursor);
+  }
+  animateCursor();
+
+  // ════════════════════════════════════════════════
+  // FREQUENCY BARS UI
+  // ════════════════════════════════════════════════
+  const NUM_BARS = 80;
+  for (let i = 0; i < NUM_BARS; i++) {
+    const b = document.createElement('div');
+    b.className = 'freq-bar';
+    freqBarsEl.appendChild(b);
+  }
+  const freqBarEls = Array.from(freqBarsEl.children);
+
+  function updateFreqBars(data) {
+    if (!data) return;
+    const step = Math.floor(data.length / NUM_BARS);
+    for (let i = 0; i < NUM_BARS; i++) {
+      const v = data[i * step] / 255;
+      freqBarEls[i].style.height = Math.max(2, v * 78) + 'px';
+      freqBarEls[i].style.opacity = 0.3 + v * 0.7;
+    }
+  }
+
+  // ════════════════════════════════════════════════
+  // WAVEFORM RINGS
+  // ════════════════════════════════════════════════
+  const rings = [];
+  let ringTimer = 0;
+
+  function spawnRing(bass) {
+    const ring = document.createElement('div');
+    ring.className = 'wave-ring';
+    const size = 60 + bass * 200;
+    ring.style.cssText = `width:${size}px;height:${size}px;border-color:rgba(123,47,255,${0.3 + bass * 0.5})`;
+    waveRingsEl.appendChild(ring);
+
+    gsap.fromTo(ring,
+      { scale: 0.8, opacity: 0.6 + bass * 0.3 },
+      {
+        scale: 4 + bass * 3,
+        opacity: 0,
+        duration: 2 + (1 - bass) * 2,
+        ease: 'power2.out',
+        onComplete: () => ring.remove()
+      }
+    );
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 1: NEON PARTICLE VORTEX
+  // ════════════════════════════════════════════════
+  function createNeonVortexTheme() {
+    const group = new THREE.Group();
+    const COUNT = 7000;
+
+    const positions = new Float32Array(COUNT * 3);
+    const colors    = new Float32Array(COUNT * 3);
+    const angles    = new Float32Array(COUNT);
+    const radii     = new Float32Array(COUNT);
+    const yPos      = new Float32Array(COUNT);
+    const speeds    = new Float32Array(COUNT);
+    const layers    = new Float32Array(COUNT); // 0=inner 1=outer
+
+    for (let i = 0; i < COUNT; i++) {
+      const r     = 1 + Math.pow(Math.random(), 0.7) * 30;
+      const angle = Math.random() * Math.PI * 2;
+      const y     = (Math.random() - 0.5) * (r * 0.6 + 2);
+
+      angles[i]  = angle;
+      radii[i]   = r;
+      yPos[i]    = y;
+      speeds[i]  = (0.3 + Math.random() * 0.7) * (1 + (30 - r) / 30);
+      layers[i]  = r < 10 ? 0 : 1;
+
+      positions[i*3]   = Math.cos(angle) * r;
+      positions[i*3+1] = y;
+      positions[i*3+2] = Math.sin(angle) * r;
+
+      const t = r / 30;
+      colors[i*3]   = 0.48 + (1-t)*0.52;
+      colors[i*3+1] = t * 0.8;
+      colors[i*3+2] = 1.0;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.PointsMaterial({
+      size: 0.14,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.85,
+      sizeAttenuation: true,
+    });
+
+    const points = new THREE.Points(geo, mat);
+    group.add(points);
+
+    // Central glow sphere
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0x7b2fff,
+      transparent: true,
+      opacity: 0.08,
+      blending: THREE.AdditiveBlending,
+    });
+    const coreGeo  = new THREE.SphereGeometry(3, 16, 16);
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    group.add(coreMesh);
+
+    scene.add(group);
+
+    let time = 0;
+
+    function update(bass, mid, treble) {
+      time += 0.008 + treble * 0.025 + mid * 0.01;
+
+      const pos = geo.attributes.position.array;
+      const col = geo.attributes.color.array;
+      const bassBoost = 1 + bass * 0.6;
+
+      for (let i = 0; i < COUNT; i++) {
+        angles[i] += speeds[i] * 0.008 * (1 + treble * 2.5) * (layers[i] === 0 ? 1.5 : 0.8);
+
+        const pulse = radii[i] * bassBoost * (1 + 0.15 * Math.sin(time * 3 + i * 0.005));
+        const drift = Math.sin(time * 0.4 + i * 0.02) * 0.008;
+
+        pos[i*3]   = Math.cos(angles[i]) * pulse;
+        pos[i*3+1] = yPos[i] + Math.sin(time * 0.7 + i * 0.1) * 0.05;
+        pos[i*3+2] = Math.sin(angles[i]) * pulse;
+
+        yPos[i] += drift;
+        if (Math.abs(yPos[i]) > radii[i] * 0.4 + 2) yPos[i] *= 0.98;
+
+        // Hue cycle driven by treble and time
+        const hue  = (radii[i] / 30 + treble * 0.4 + time * 0.04) % 1;
+        const sat  = 0.8 + bass * 0.2;
+        const r = Math.abs(Math.sin(hue * Math.PI * 2 + 0));
+        const g = Math.abs(Math.sin(hue * Math.PI * 2 + 2.09));
+        const b = Math.abs(Math.sin(hue * Math.PI * 2 + 4.19));
+        col[i*3]   = r * sat + (1-sat);
+        col[i*3+1] = g * sat;
+        col[i*3+2] = b * sat + (1-sat) * 0.5;
+      }
+
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate    = true;
+
+      mat.size   = 0.1 + bass * 0.28 + treble * 0.06;
+      mat.opacity = 0.7 + bass * 0.25;
+
+      group.rotation.y += 0.003 + treble * 0.01 + mid * 0.004;
+      group.rotation.x  = Math.sin(time * 0.25) * 0.12;
+      group.rotation.z  = Math.cos(time * 0.18) * 0.05;
+
+      coreMat.opacity = 0.05 + bass * 0.25;
+      coreMesh.scale.setScalar(1 + bass * 1.5);
+
+      const bg = THEME_COLORS[0].bg;
+      renderer.setClearColor(new THREE.Color(bg[0] + bass*0.06, bg[1] + mid*0.01, bg[2] + treble*0.05), 1);
+    }
+
+    function dispose() {
+      geo.dispose(); mat.dispose();
+      coreGeo.dispose(); coreMat.dispose();
+      scene.remove(group);
+    }
+
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 2: VOLUMETRIC CLOUDSCAPE
+  // ════════════════════════════════════════════════
+  function createCloudscapeTheme() {
+    const group = new THREE.Group();
+
+    // Cloud layer
+    const CLOUD_COUNT = 4000;
+    const cPos = new Float32Array(CLOUD_COUNT * 3);
+    const cCol = new Float32Array(CLOUD_COUNT * 3);
+
+    for (let i = 0; i < CLOUD_COUNT; i++) {
+      cPos[i*3]   = (Math.random() - 0.5) * 140;
+      cPos[i*3+1] = (Math.random() - 0.5) * 60;
+      cPos[i*3+2] = -Math.random() * 300;
+
+      const bright = 0.15 + Math.random() * 0.55;
+      cCol[i*3]   = bright * 0.55;
+      cCol[i*3+1] = bright * 0.65;
+      cCol[i*3+2] = bright;
+    }
+
+    const cloudGeo = new THREE.BufferGeometry();
+    cloudGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
+    cloudGeo.setAttribute('color',    new THREE.BufferAttribute(cCol, 3));
+
+    const cloudMat = new THREE.PointsMaterial({
+      size: 2.8,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.55,
+      sizeAttenuation: true,
+    });
+
+    const cloudPoints = new THREE.Points(cloudGeo, cloudMat);
+    group.add(cloudPoints);
+
+    // Star layer
+    const STAR_COUNT = 2000;
+    const sPos = new Float32Array(STAR_COUNT * 3);
+    for (let i = 0; i < STAR_COUNT; i++) {
+      sPos[i*3]   = (Math.random() - 0.5) * 300;
+      sPos[i*3+1] = (Math.random() - 0.5) * 200;
+      sPos[i*3+2] = -100 - Math.random() * 400;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+    const starMat = new THREE.PointsMaterial({
+      size: 0.4,
+      color: 0xffffff,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.7,
+    });
+    const stars = new THREE.Points(starGeo, starMat);
+    group.add(stars);
+
+    // Lightning flash light
+    const lightningLight = new THREE.PointLight(0x4488ff, 0, 200);
+    lightningLight.position.set(0, 20, -50);
+    group.add(lightningLight);
+
+    const ambLight = new THREE.AmbientLight(0x1a2a4a, 1);
+    group.add(ambLight);
+
+    scene.add(group);
+    scene.fog = new THREE.FogExp2(0x000a14, 0.004);
+
+    let time = 0;
+    let lightningVal = 0;
+    let prevBass = 0;
+    const cameraBaseZ = camera.position.z;
+
+    function update(bass, mid, treble) {
+      time += 0.01;
+
+      const speed = 0.35 + mid * 4 + bass * 1.5;
+      const positions = cloudGeo.attributes.position.array;
+      const cloudColors = cloudGeo.attributes.color.array;
+
+      for (let i = 0; i < CLOUD_COUNT; i++) {
+        positions[i*3+2] += speed * 0.18;
+        if (positions[i*3+2] > camera.position.z + 30) {
+          positions[i*3]   = (Math.random() - 0.5) * 140;
+          positions[i*3+1] = (Math.random() - 0.5) * 60;
+          positions[i*3+2] = camera.position.z - 280;
+        }
+
+        // Color temp: warm with heavy bass, cool otherwise
+        const warm  = bass * 0.6 + mid * 0.2;
+        const bright = 0.15 + Math.random() * 0.01;
+        cloudColors[i*3]   = bright * (0.5 + warm * 0.8);
+        cloudColors[i*3+1] = bright * (0.6 + treble * 0.3);
+        cloudColors[i*3+2] = bright * (1.0 - warm * 0.4);
+      }
+
+      cloudGeo.attributes.position.needsUpdate = true;
+      cloudGeo.attributes.color.needsUpdate    = true;
+
+      // Lightning on sudden bass hits
+      const bassDelta = bass - prevBass;
+      if (bassDelta > 0.15 && Math.random() < 0.6) {
+        lightningVal = bass * 5;
+        lightningLight.position.set(
+          (Math.random() - 0.5) * 60,
+          10 + Math.random() * 30,
+          camera.position.z - 30 - Math.random() * 60
+        );
+      }
+      lightningVal *= 0.82;
+      lightningLight.intensity = lightningVal;
+      lightningLight.color.setHSL(0.58 + mid * 0.15, 1, 0.8);
+      prevBass = bass;
+
+      // Camera gentle sway
+      camera.position.x = Math.sin(time * 0.25) * 6 + Math.sin(time * 0.1) * 2;
+      camera.position.y = Math.cos(time * 0.18) * 3 + bass * 1.5;
+      camera.rotation.z = Math.sin(time * 0.15) * 0.04;
+      camera.lookAt(camera.position.x, camera.position.y, camera.position.z - 100);
+
+      cloudMat.size    = 2.2 + bass * 2 + mid;
+      cloudMat.opacity = 0.45 + bass * 0.25;
+
+      const bg = THEME_COLORS[1].bg;
+      renderer.setClearColor(new THREE.Color(bg[0], bg[1] + mid*0.02, bg[2] + (1-bass)*0.02), 1);
+    }
+
+    function dispose() {
+      cloudGeo.dispose(); cloudMat.dispose();
+      starGeo.dispose();  starMat.dispose();
+      scene.remove(group);
+      scene.fog = null;
+      camera.position.set(0, 0, 35);
+      camera.rotation.set(0, 0, 0);
+      camera.lookAt(0, 0, 0);
+    }
+
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 3: CRYSTAL GEOMETRY + LASERS
+  // ════════════════════════════════════════════════
+  function createCrystalTheme() {
+    const group = new THREE.Group();
+    const shapeGeos = [
+      new THREE.IcosahedronGeometry(5, 0),
+      new THREE.OctahedronGeometry(5, 0),
+      new THREE.TetrahedronGeometry(5, 0),
+      new THREE.DodecahedronGeometry(4, 0),
+      new THREE.IcosahedronGeometry(3, 1),
+    ];
+
+    const configs = [
+      { pos: [0,0,0],     scale: 1.0 },
+      { pos: [-16,4,-10], scale: 0.7 },
+      { pos: [16,-4,-10], scale: 0.7 },
+      { pos: [0, 16,-12], scale: 0.6 },
+      { pos: [0,-16,-12], scale: 0.6 },
+    ];
+
+    const meshObjs = configs.map((cfg, i) => {
+      const geo     = shapeGeos[i].clone();
+      const edgeGeo = new THREE.EdgesGeometry(geo);
+
+      const wireMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color().setHSL(i/5, 1, 0.75),
+        transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const faceMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color().setHSL(i/5, 0.8, 0.12),
+        transparent: true, opacity: 0.25,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+
+      const wire  = new THREE.LineSegments(edgeGeo, wireMat);
+      const face  = new THREE.Mesh(geo, faceMat);
+      const cont  = new THREE.Group();
+      cont.add(face, wire);
+      cont.position.set(...cfg.pos);
+      cont.scale.setScalar(cfg.scale);
+      group.add(cont);
+
+      return { cont, wire, face, wireMat, faceMat, geo, edgeGeo, hueBase: i/5 };
+    });
+
+    // Laser beams
+    const NUM_LASERS = 30;
+    const laserObjs = [];
+
+    for (let i = 0; i < NUM_LASERS; i++) {
+      const pts = [
+        new THREE.Vector3((Math.random()-0.5)*80, (Math.random()-0.5)*80, -40),
+        new THREE.Vector3((Math.random()-0.5)*15, (Math.random()-0.5)*15, 10),
+      ];
+      const lGeo = new THREE.BufferGeometry().setFromPoints(pts);
+      const lMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color().setHSL(i/NUM_LASERS, 1, 0.85),
+        transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending,
+      });
+      const laser = new THREE.Line(lGeo, lMat);
+      group.add(laser);
+      laserObjs.push({ laser, lMat, hue: i/NUM_LASERS });
+    }
+
+    // Particle ring
+    const RING_COUNT = 3000;
+    const rPos = new Float32Array(RING_COUNT * 3);
+    const rCol = new Float32Array(RING_COUNT * 3);
+    const rAng = new Float32Array(RING_COUNT);
+    const rRad = new Float32Array(RING_COUNT);
+
+    for (let i = 0; i < RING_COUNT; i++) {
+      const r = 20 + Math.random() * 20;
+      const a = Math.random() * Math.PI * 2;
+      rAng[i] = a; rRad[i] = r;
+      rPos[i*3]   = Math.cos(a) * r;
+      rPos[i*3+1] = (Math.random()-0.5) * 3;
+      rPos[i*3+2] = Math.sin(a) * r;
+      rCol[i*3] = 1; rCol[i*3+1] = 0.3; rCol[i*3+2] = 0.8;
+    }
+
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute('position', new THREE.BufferAttribute(rPos, 3));
+    ringGeo.setAttribute('color',    new THREE.BufferAttribute(rCol, 3));
+    const ringMat = new THREE.PointsMaterial({
+      size: 0.18, vertexColors: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.7,
+    });
+    group.add(new THREE.Points(ringGeo, ringMat));
+
+    scene.add(group);
+
+    let time = 0;
+
+    function update(bass, mid, treble) {
+      time += 0.012;
+
+      meshObjs.forEach((m, i) => {
+        m.cont.rotation.x += 0.006 + bass * 0.04 + treble * 0.02;
+        m.cont.rotation.y += 0.01  + mid  * 0.03 + treble * 0.015;
+        m.cont.rotation.z += 0.004 + bass * 0.02;
+        m.cont.scale.setScalar(configs[i].scale * (1 + bass * 0.45 * Math.sin(time*2+i)));
+
+        const hue = (m.hueBase + time * 0.04 + treble * 0.25) % 1;
+        m.wireMat.color.setHSL(hue, 1, 0.75);
+        m.wireMat.opacity = 0.6 + bass * 0.4;
+        m.faceMat.color.setHSL(hue, 0.8, 0.08 + bass*0.18);
+        m.faceMat.opacity = 0.12 + bass * 0.3;
+      });
+
+      group.rotation.y += 0.004 + mid * 0.012;
+      group.rotation.x  = Math.sin(time * 0.22) * 0.18;
+
+      // Lasers fire with treble
+      laserObjs.forEach((l, i) => {
+        const flash = treble > 0.35 ? Math.pow(treble, 1.5) * Math.random() : 0;
+        l.lMat.opacity = flash * 0.85;
+        l.lMat.color.setHSL((l.hue + time*0.08) % 1, 1, 0.9);
+      });
+
+      // Particle ring
+      const rPosArr = ringGeo.attributes.position.array;
+      const rColArr = ringGeo.attributes.color.array;
+      for (let i = 0; i < RING_COUNT; i++) {
+        rAng[i] += 0.003 * (1 + treble * 3) * (i % 2 === 0 ? 1 : -1);
+        const r = rRad[i] * (1 + bass * 0.25);
+        rPosArr[i*3]   = Math.cos(rAng[i]) * r;
+        rPosArr[i*3+2] = Math.sin(rAng[i]) * r;
+        const h = (i/RING_COUNT + time*0.05 + treble*0.3) % 1;
+        rColArr[i*3]   = Math.abs(Math.sin(h*Math.PI*2));
+        rColArr[i*3+1] = Math.abs(Math.sin(h*Math.PI*2 + 2.09));
+        rColArr[i*3+2] = Math.abs(Math.sin(h*Math.PI*2 + 4.19));
+      }
+      ringGeo.attributes.position.needsUpdate = true;
+      ringGeo.attributes.color.needsUpdate    = true;
+
+      ringMat.size    = 0.15 + bass * 0.2;
+      ringMat.opacity = 0.5 + treble * 0.4;
+
+      const bg = THEME_COLORS[2].bg;
+      renderer.setClearColor(new THREE.Color(bg[0] + bass*0.05, bg[1], bg[2] + treble*0.06), 1);
+    }
+
+    function dispose() {
+      meshObjs.forEach(m => { m.geo.dispose(); m.edgeGeo.dispose(); m.wireMat.dispose(); m.faceMat.dispose(); });
+      laserObjs.forEach(l => { l.laser.geometry.dispose(); l.lMat.dispose(); });
+      ringGeo.dispose(); ringMat.dispose();
+      scene.remove(group);
+    }
+
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 4: FLORAL BLOOM  (mellow / acoustic)
+  // ════════════════════════════════════════════════
+  function createFloralTheme() {
+    const group = new THREE.Group();
+    const FLOWERS = 9;
+    const flowerObjs = [];
+
+    for (let f = 0; f < FLOWERS; f++) {
+      const petals = 6 + Math.floor(Math.random() * 6);
+      const ptsPerPetal = 40;
+      const COUNT = petals * ptsPerPetal;
+      const pos = new Float32Array(COUNT * 3);
+      const col = new Float32Array(COUNT * 3);
+      const baseHue = Math.random();
+
+      let k = 0;
+      for (let p = 0; p < petals; p++) {
+        const petalAngle = (p / petals) * Math.PI * 2;
+        for (let i = 0; i < ptsPerPetal; i++) {
+          const t = i / ptsPerPetal;
+          const r = Math.sin(t * Math.PI) * 4;           // petal length profile
+          const spread = Math.cos(t * Math.PI) * 0.6;
+          const a = petalAngle + (Math.random() - 0.5) * 0.5 * spread;
+          pos[k*3]   = Math.cos(a) * r;
+          pos[k*3+1] = Math.sin(a) * r;
+          pos[k*3+2] = (Math.random() - 0.5) * 1.5;
+          const c = new THREE.Color().setHSL((baseHue + t * 0.12) % 1, 0.65, 0.55 + t * 0.25);
+          col[k*3] = c.r; col[k*3+1] = c.g; col[k*3+2] = c.b;
+          k++;
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
+      const mat = new THREE.PointsMaterial({ size: 0.22, vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+      const pts = new THREE.Points(geo, mat);
+
+      const cont = new THREE.Group();
+      cont.add(pts);
+      cont.position.set((Math.random()-0.5)*44, (Math.random()-0.5)*30, -Math.random()*40);
+      cont.scale.setScalar(0.3 + Math.random()*0.7);
+      group.add(cont);
+      flowerObjs.push({ cont, mat, baseHue, phase: Math.random()*Math.PI*2, basePos: cont.position.clone() });
+    }
+
+    // floating pollen
+    const POLLEN = 1200;
+    const pPos = new Float32Array(POLLEN*3);
+    for (let i=0;i<POLLEN;i++){ pPos[i*3]=(Math.random()-0.5)*90; pPos[i*3+1]=(Math.random()-0.5)*60; pPos[i*3+2]=(Math.random()-0.5)*50; }
+    const pollenGeo = new THREE.BufferGeometry(); pollenGeo.setAttribute('position', new THREE.BufferAttribute(pPos,3));
+    const pollenMat = new THREE.PointsMaterial({ size:0.14, color:0xfff0c0, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false });
+    group.add(new THREE.Points(pollenGeo, pollenMat));
+
+    scene.add(group);
+    let time = 0;
+
+    function update(bass, mid, treble) {
+      time += 0.006 + mid*0.01;
+      flowerObjs.forEach((fl, i) => {
+        const bloom = 0.6 + bass*0.7 + Math.sin(time + fl.phase)*0.12;
+        fl.cont.scale.setScalar((0.3 + (i%5)*0.12) * bloom);
+        fl.cont.rotation.z += 0.002 + treble*0.012;
+        fl.cont.position.y = fl.basePos.y + Math.sin(time*0.7 + fl.phase)*1.4;
+        fl.mat.size = 0.16 + bass*0.25;
+        fl.mat.opacity = 0.6 + treble*0.35;
+      });
+      const pp = pollenGeo.attributes.position.array;
+      for (let i=0;i<POLLEN;i++){ pp[i*3+1] += 0.02 + mid*0.06; if (pp[i*3+1]>30) pp[i*3+1]=-30; }
+      pollenGeo.attributes.position.needsUpdate = true;
+      group.rotation.y = Math.sin(time*0.15)*0.15;
+      renderer.setClearColor(new THREE.Color(0.03+bass*0.03, 0.01, 0.04+mid*0.02), 1);
+    }
+    function dispose(){ flowerObjs.forEach(f=>{f.cont.children[0].geometry.dispose(); f.mat.dispose();}); pollenGeo.dispose(); pollenMat.dispose(); scene.remove(group); }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 5: AURORA  (ambient / chill)
+  // ════════════════════════════════════════════════
+  function createAuroraTheme() {
+    const group = new THREE.Group();
+    const RIBBONS = 5;
+    const ribbonObjs = [];
+    const SEG = 120;
+
+    for (let r=0; r<RIBBONS; r++){
+      const COUNT = SEG*16;
+      const pos = new Float32Array(COUNT*3);
+      const col = new Float32Array(COUNT*3);
+      const hue = 0.35 + r*0.08;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+      const mat = new THREE.PointsMaterial({ size:0.3, vertexColors:true, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false });
+      const pts = new THREE.Points(geo, mat);
+      group.add(pts);
+      ribbonObjs.push({ geo, mat, hue, yBase: (r-RIBBONS/2)*7, phase: r*1.3, COUNT });
+    }
+
+    // star backdrop
+    const STARS=1500; const sPos=new Float32Array(STARS*3);
+    for(let i=0;i<STARS;i++){ sPos[i*3]=(Math.random()-0.5)*200; sPos[i*3+1]=(Math.random()-0.5)*120; sPos[i*3+2]=-60-Math.random()*120; }
+    const starGeo=new THREE.BufferGeometry(); starGeo.setAttribute('position', new THREE.BufferAttribute(sPos,3));
+    const starMat=new THREE.PointsMaterial({ size:0.3, color:0xffffff, transparent:true, opacity:0.6, blending:THREE.AdditiveBlending, depthWrite:false });
+    group.add(new THREE.Points(starGeo, starMat));
+
+    scene.add(group);
+    let time=0;
+    function update(bass, mid, treble){
+      time += 0.01 + mid*0.015;
+      ribbonObjs.forEach((rb)=>{
+        const pos=rb.geo.attributes.position.array, col=rb.geo.attributes.color.array;
+        let k=0;
+        for(let s=0;s<SEG;s++){
+          const x=(s/SEG-0.5)*80;
+          const wave = Math.sin(s*0.15 + time + rb.phase)*6*(1+bass*1.5) + Math.sin(s*0.05 - time*0.7)*4;
+          for(let h=0;h<16;h++){
+            const yy = rb.yBase + wave + h*0.9;
+            pos[k*3]=x; pos[k*3+1]=yy; pos[k*3+2]=Math.sin(s*0.1+time)*8 - 10;
+            const c=new THREE.Color().setHSL((rb.hue + h*0.01 + treble*0.2)%1, 0.8, 0.4 + (h/16)*0.4*(0.5+bass));
+            col[k*3]=c.r; col[k*3+1]=c.g; col[k*3+2]=c.b; k++;
+          }
+        }
+        rb.geo.attributes.position.needsUpdate=true; rb.geo.attributes.color.needsUpdate=true;
+        rb.mat.size=0.25+bass*0.35; rb.mat.opacity=0.45+treble*0.4;
+      });
+      group.rotation.z = Math.sin(time*0.1)*0.05;
+      renderer.setClearColor(new THREE.Color(0.0, 0.01+mid*0.02, 0.05+bass*0.04), 1);
+    }
+    function dispose(){ ribbonObjs.forEach(r=>{r.geo.dispose(); r.mat.dispose();}); starGeo.dispose(); starMat.dispose(); scene.remove(group); }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 6: GEOMETRIC TUNNEL  (energetic / electronic)
+  // ════════════════════════════════════════════════
+  function createTunnelTheme() {
+    const group = new THREE.Group();
+    const RINGS = 60;
+    const ringObjs = [];
+    for (let i=0;i<RINGS;i++){
+      const geo = new THREE.TorusGeometry(6, 0.08, 6, 32);
+      const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(i/RINGS,1,0.6), transparent:true, opacity:0.7, blending:THREE.AdditiveBlending, wireframe:false });
+      const ring = new THREE.Mesh(geo, mat);
+      ring.position.z = -i*6;
+      ring.rotation.z = i*0.2;
+      group.add(ring);
+      ringObjs.push({ ring, mat, baseZ:-i*6, idx:i });
+    }
+    scene.add(group);
+    let time=0;
+    function update(bass, mid, treble){
+      time += 0.01;
+      const speed = 0.4 + mid*3 + bass*1.5;
+      ringObjs.forEach((ro)=>{
+        ro.ring.position.z += speed*0.5;
+        if (ro.ring.position.z > camera.position.z) ro.ring.position.z -= RINGS*6;
+        ro.ring.rotation.z += 0.01 + treble*0.05;
+        const sc = 1 + bass*0.5 + Math.sin(time*2 + ro.idx*0.3)*0.15;
+        ro.ring.scale.set(sc, sc, 1);
+        ro.mat.color.setHSL((ro.idx/RINGS + time*0.1 + treble*0.3)%1, 1, 0.5 + bass*0.3);
+        ro.mat.opacity = 0.4 + treble*0.5;
+      });
+      group.rotation.z += 0.002 + treble*0.01;
+      camera.position.x = Math.sin(time*0.5)*2*bass;
+      camera.position.y = Math.cos(time*0.4)*2*bass;
+      camera.lookAt(0,0,camera.position.z-50);
+      renderer.setClearColor(new THREE.Color(0.02+bass*0.06, 0.0, 0.05+treble*0.05), 1);
+    }
+    function dispose(){ ringObjs.forEach(r=>{r.ring.geometry.dispose(); r.mat.dispose();}); scene.remove(group); camera.position.set(0,0,35); camera.lookAt(0,0,0); }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 7: FIREFLIES  (acoustic / folk / warm)
+  // ════════════════════════════════════════════════
+  function createFirefliesTheme() {
+    const group = new THREE.Group();
+    const COUNT = 900;
+    const pos = new Float32Array(COUNT*3);
+    const col = new Float32Array(COUNT*3);
+    const data = [];
+    for (let i=0;i<COUNT;i++){
+      const x=(Math.random()-0.5)*80, y=(Math.random()-0.5)*50, z=(Math.random()-0.5)*60;
+      pos[i*3]=x; pos[i*3+1]=y; pos[i*3+2]=z;
+      data.push({ x,y,z, phase:Math.random()*Math.PI*2, sp:0.2+Math.random()*0.6 });
+      col[i*3]=1; col[i*3+1]=0.8; col[i*3+2]=0.3;
+    }
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+    const mat=new THREE.PointsMaterial({ size:0.5, vertexColors:true, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false });
+    group.add(new THREE.Points(geo, mat));
+    // soft tree silhouette particles at bottom
+    scene.add(group);
+    scene.fog = new THREE.FogExp2(0x020503, 0.006);
+    let time=0;
+    function update(bass, mid, treble){
+      time += 0.01;
+      const p=geo.attributes.position.array, c=geo.attributes.color.array;
+      for(let i=0;i<COUNT;i++){
+        const d=data[i];
+        p[i*3]   = d.x + Math.sin(time*d.sp + d.phase)*3;
+        p[i*3+1] = d.y + Math.cos(time*d.sp*0.7 + d.phase)*3;
+        p[i*3+2] = d.z + Math.sin(time*d.sp*0.5 + d.phase)*2;
+        const glow = 0.5 + 0.5*Math.sin(time*2 + d.phase) + bass*0.6;
+        c[i*3]   = Math.min(1, glow);
+        c[i*3+1] = Math.min(1, glow*0.7 + treble*0.3);
+        c[i*3+2] = glow*0.2;
+      }
+      geo.attributes.position.needsUpdate=true; geo.attributes.color.needsUpdate=true;
+      mat.size = 0.35 + bass*0.6;
+      group.rotation.y += 0.0008 + mid*0.003;
+      renderer.setClearColor(new THREE.Color(0.02+bass*0.02, 0.03, 0.01), 1);
+    }
+    function dispose(){ geo.dispose(); mat.dispose(); scene.remove(group); scene.fog=null; }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 8: NEBULA  (dreamy / ambient)
+  // ════════════════════════════════════════════════
+  function createNebulaTheme() {
+    const group = new THREE.Group();
+    const COUNT = 9000;
+    const pos=new Float32Array(COUNT*3), col=new Float32Array(COUNT*3), off=new Float32Array(COUNT);
+    for(let i=0;i<COUNT;i++){
+      // clumpy cloud via gaussian-ish
+      const r = Math.pow(Math.random(),0.5)*40;
+      const a = Math.random()*Math.PI*2, b=Math.acos(2*Math.random()-1);
+      pos[i*3]=Math.sin(b)*Math.cos(a)*r;
+      pos[i*3+1]=Math.sin(b)*Math.sin(a)*r*0.6;
+      pos[i*3+2]=Math.cos(b)*r;
+      off[i]=Math.random()*Math.PI*2;
+      const c=new THREE.Color().setHSL(0.6+Math.random()*0.25, 0.7, 0.3+Math.random()*0.3);
+      col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+    }
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col,3));
+    const mat=new THREE.PointsMaterial({ size:0.5, vertexColors:true, transparent:true, opacity:0.55, blending:THREE.AdditiveBlending, depthWrite:false });
+    group.add(new THREE.Points(geo, mat));
+    scene.add(group);
+    let time=0;
+    function update(bass, mid, treble){
+      time += 0.004 + mid*0.006;
+      group.rotation.y += 0.0015 + treble*0.004;
+      group.rotation.x = Math.sin(time*0.2)*0.2;
+      const c=geo.attributes.color.array;
+      for(let i=0;i<COUNT;i+=7){ // update subset for perf
+        const h=(0.6 + Math.sin(time + off[i])*0.15 + treble*0.2)%1;
+        const cc=new THREE.Color().setHSL(h, 0.7, 0.3+bass*0.3);
+        c[i*3]=cc.r; c[i*3+1]=cc.g; c[i*3+2]=cc.b;
+      }
+      geo.attributes.color.needsUpdate=true;
+      mat.size = 0.4 + bass*0.6;
+      mat.opacity = 0.45 + bass*0.3;
+      group.scale.setScalar(1 + bass*0.15);
+      renderer.setClearColor(new THREE.Color(0.01, 0.0, 0.04+bass*0.05), 1);
+    }
+    function dispose(){ geo.dispose(); mat.dispose(); scene.remove(group); }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME 9: LIQUID PLASMA  (smooth / soul / jazz)
+  // ════════════════════════════════════════════════
+  function createPlasmaTheme() {
+    const group = new THREE.Group();
+    const SIZE = 90, SEG = 90;
+    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+    const mat = new THREE.MeshBasicMaterial({ vertexColors:true, wireframe:true, transparent:true, opacity:0.6, blending:THREE.AdditiveBlending });
+    const colors = new Float32Array((SEG+1)*(SEG+1)*3);
+    geo.setAttribute('color', new THREE.BufferAttribute(colors,3));
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI/2.4;
+    mesh.position.y = -8;
+    group.add(mesh);
+    scene.add(group);
+    camera.position.set(0, 6, 40);
+    let time=0;
+    const basePos = geo.attributes.position.array.slice();
+    function update(bass, mid, treble){
+      time += 0.015 + mid*0.02;
+      const p=geo.attributes.position.array, c=geo.attributes.color.array;
+      for(let i=0;i<p.length;i+=3){
+        const x=basePos[i], y=basePos[i+1];
+        const z = Math.sin(x*0.12 + time)*3*(1+bass*1.5)
+                + Math.cos(y*0.12 + time*0.8)*3
+                + Math.sin((x+y)*0.08 + time*1.3)*2*(1+treble);
+        p[i+2]=z;
+        const h=((z+8)/16 + time*0.05 + treble*0.2)%1;
+        const cc=new THREE.Color().setHSL(h<0?h+1:h, 0.8, 0.4+bass*0.3);
+        c[i]=cc.r; c[i+1]=cc.g; c[i+2]=cc.b;
+      }
+      geo.attributes.position.needsUpdate=true; geo.attributes.color.needsUpdate=true;
+      mat.opacity = 0.45 + bass*0.4;
+      group.rotation.y += 0.001 + treble*0.004;
+      renderer.setClearColor(new THREE.Color(0.03+bass*0.04, 0.0, 0.04), 1);
+    }
+    function dispose(){ geo.dispose(); mat.dispose(); scene.remove(group); camera.position.set(0,0,35); camera.lookAt(0,0,0); }
+    return { update, dispose };
+  }
+
+  // ════════════════════════════════════════════════
+  // THEME MANAGEMENT
+  // ════════════════════════════════════════════════
+  const THEME_FACTORIES = [
+    createNeonVortexTheme, createCloudscapeTheme, createCrystalTheme,
+    createFloralTheme, createAuroraTheme, createTunnelTheme,
+    createFirefliesTheme, createNebulaTheme, createPlasmaTheme,
+  ];
+  const THEME_NAMES = [
+    '✦ Neon Vortex', '☁ Cloudscape', '◈ Crystal', '❀ Floral Bloom',
+    '🌌 Aurora', '◎ Tunnel', '✷ Fireflies', '☄ Nebula', '∿ Liquid Plasma',
+  ];
+  // Which themes suit which mood (indices into THEME_FACTORIES)
+  const MOOD_THEMES = {
+    energetic: [0, 2, 5],   // vortex, crystal, tunnel
+    mellow:    [3, 6],      // floral, fireflies
+    ambient:   [4, 7],      // aurora, nebula
+    smooth:    [1, 8],      // cloudscape, plasma
+  };
+
+  function setTheme(idx, fromAuto) {
+    if (activeThemeObj) activeThemeObj.dispose();
+    while (scene.children.length) scene.remove(scene.children[0]);
+    scene.fog = null;
+
+    camera.position.set(0, 0, 35);
+    camera.rotation.set(0, 0, 0);
+    camera.lookAt(0, 0, 0);
+
+    currentTheme  = idx;
+    activeThemeObj = THEME_FACTORIES[idx]();
+
+    document.querySelectorAll('.theme-btn[data-theme]').forEach(b => b.classList.toggle('active', +b.dataset.theme === idx));
+    showToast((fromAuto ? '🎯 Auto → ' : '') + THEME_NAMES[idx]);
+  }
+
+  // ════════════════════════════════════════════════
+  // AUTO MOOD ENGINE  — picks a theme to match the song
+  // ════════════════════════════════════════════════
+  let autoMode = true;
+  let moodEnergyAvg = 0, moodBrightAvg = 0;
+  let currentMood = '', genreHint = '';
+  let moodCheckTimer = 0;
+
+  function classifyMood() {
+    // genre tag override (from Jamendo metadata)
+    // iTunes primaryGenreName values: Pop, Hip-Hop/Rap, R&B/Soul, Electronic,
+    // Rock, Alternative, Dance, Country, Jazz, Classical, Folk, Singer/Songwriter, etc.
+    const g = genreHint.toLowerCase();
+    if (/(electro|dance|edm|dubstep|drum|trance|techno|house|metal|punk|rock|hip.hop|rap)/.test(g)) return 'energetic';
+    if (/(folk|singer|acoustic|country|children|christian|gospel|bluegrass)/.test(g)) return 'mellow';
+    if (/(ambient|classical|instrumental|new age|meditation|soundtrack|score|opera)/.test(g)) return 'ambient';
+    if (/(jazz|soul|blues|rnb|r&b|funk|bossa|latin|reggae|lounge|adult contemporary)/.test(g)) return 'smooth';
+
+    // fall back to live audio analysis
+    if (moodEnergyAvg > 0.42) return 'energetic';
+    if (moodBrightAvg > 1.25) return 'ambient';
+    if (moodEnergyAvg < 0.22) return 'mellow';
+    return 'smooth';
+  }
+
+  function updateAutoMood() {
+    if (!autoMode || !isPlaying) return;
+    const mood = classifyMood();
+    if (mood !== currentMood) {
+      currentMood = mood;
+      const choices = MOOD_THEMES[mood];
+      const pick = choices[Math.floor(Math.random() * choices.length)];
+      if (pick !== currentTheme) setTheme(pick, true);
+      const moodLabel = document.getElementById('mood-label');
+      if (moodLabel) moodLabel.textContent = `mood: ${mood}`;
+    }
+  }
+
+  // ════════════════════════════════════════════════
+  // AUDIO
+  // ════════════════════════════════════════════════
+  function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.82;
+    bufferLength = analyser.frequencyBinCount;
+    dataArray    = new Uint8Array(bufferLength);
+
+    const src = audioCtx.createMediaElementSource(player);
+    src.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  }
+
+  function getFrequencies() {
+    if (!analyser) return { bass: 0, mid: 0, treble: 0 };
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const nyq    = audioCtx.sampleRate / 2;
+    const binHz  = nyq / bufferLength;
+    const bassEnd   = Math.floor(250   / binHz);
+    const midEnd    = Math.floor(4000  / binHz);
+    const trebleEnd = Math.floor(12000 / binHz);
+
+    let bSum = 0, mSum = 0, tSum = 0;
+    for (let i = 1;       i < bassEnd;   i++) bSum += dataArray[i];
+    for (let i = bassEnd; i < midEnd;    i++) mSum += dataArray[i];
+    for (let i = midEnd;  i < trebleEnd; i++) tSum += dataArray[i];
+
+    rawBass   = (bSum / Math.max(1, bassEnd - 1)) / 255;
+    rawMid    = (mSum / Math.max(1, midEnd - bassEnd)) / 255;
+    rawTreble = (tSum / Math.max(1, trebleEnd - midEnd)) / 255;
+
+    const S = 0.18;
+    smoothBass   += (rawBass   - smoothBass)   * S;
+    smoothMid    += (rawMid    - smoothMid)    * S;
+    smoothTreble += (rawTreble - smoothTreble) * S;
+
+    // slow-moving averages for mood classification
+    const energy = (rawBass + rawMid + rawTreble) / 3;
+    const bright = rawTreble / (rawBass + 0.05);
+    moodEnergyAvg += (energy - moodEnergyAvg) * 0.01;
+    moodBrightAvg += (bright - moodBrightAvg) * 0.01;
+
+    updateFreqBars(dataArray);
+
+    return { bass: smoothBass, mid: smoothMid, treble: smoothTreble };
+  }
+
+  // ════════════════════════════════════════════════
+  // ITUNES SEARCH API  — free, no key, all mainstream music
+  // Returns 30-second preview clips (Apple-provided promotional streams)
+  // ════════════════════════════════════════════════
+  async function searchITunes(q) {
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}`
+      + `&entity=song&media=music&limit=25&explicit=Yes`;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error(`iTunes HTTP ${res.status}`);
+    const data = await res.json();
+    // Normalise to the same shape loadTrack expects
+    return (data.results || [])
+      .filter(r => r.previewUrl)
+      .map(r => ({
+        id:          r.trackId,
+        name:        r.trackName,
+        artist_name: r.artistName,
+        album_name:  r.collectionName,
+        duration:    30,                                      // preview length
+        full_duration: Math.round(r.trackTimeMillis / 1000), // full song length (metadata only)
+        audio:       r.previewUrl,                           // direct MP3 stream, CORS-friendly
+        image:       (r.artworkUrl100 || '').replace('100x100', '300x300'),
+        genre:       r.primaryGenreName || '',
+        preview_offset: 0,                                   // Apple picks the best 30s, usually chorus
+      }));
+  }
+
+  async function loadTrack(track) {
+    showLoading(true);
+
+    // Audio element
+    player.src = track.audio || '';
+    player.volume = parseFloat(volumeSlider.value);
+    player.crossOrigin = 'anonymous';
+
+    // Now-playing strip
+    nowTitle.textContent  = track.name;
+    nowArtist.textContent = track.artist_name;
+    if (track.image) { nowArt.src = track.image; nowArt.style.opacity = '1'; }
+
+    // Capture genre to seed the auto-mood engine (iTunes gives clean genre strings)
+    genreHint = track.genre || '';
+    currentMood = '';   // force the auto engine to re-pick for the new song
+    moodCheckTimer = 9999;
+
+    // Reset lyrics
+    lyrics = []; currentLyricIdx = -1;
+    clearLyrics();
+
+    // Fetch lyrics
+    try {
+      const lrc = await fetchLyrics(track.artist_name, track.name, track.album_name, track.duration);
+      if (lrc) {
+        lyrics = parseLRC(lrc);
+        lyricsStatus.textContent = lyrics.length ? `${lyrics.length} lyric lines synced` : '';
+        showToast(lyrics.length ? `♪ Lyrics synced — ${lyrics.length} lines` : '♪ No synced lyrics found');
+      } else {
+        lyricsStatus.textContent = 'No lyrics';
+        showToast('♪ No lyrics found for this track');
+      }
+    } catch(e) {
+      console.warn('Lyrics error', e);
+    }
+
+    // Start audio
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+    try {
+      await player.play();
+      setPlayState(true);
+    } catch(e) {
+      console.error('Playback error:', e);
+      showToast('Playback blocked — click play manually');
+    }
+
+    showLoading(false);
+  }
+
+  // ════════════════════════════════════════════════
+  // LOCAL FILE PLAYBACK  (play any song from your device)
+  // ════════════════════════════════════════════════
+  const fileInput = document.getElementById('file-input');
+  document.getElementById('upload-btn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => handleLocalFiles(Array.from(e.target.files)));
+
+  // Drag & drop anywhere
+  window.addEventListener('dragover', e => { e.preventDefault(); });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files.length) handleLocalFiles(Array.from(e.dataTransfer.files));
+  });
+
+  async function handleLocalFiles(files) {
+    const audioFile = files.find(f => f.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name));
+    const lrcFile   = files.find(f => /\.lrc$/i.test(f.name));
+    if (!audioFile) { showToast('Drop an audio file (mp3, wav, ogg…)'); return; }
+
+    showLoading(true);
+
+    // Guess "Artist - Title" from filename
+    const base = audioFile.name.replace(/\.[^.]+$/, '');
+    let artist = '', title = base;
+    const dash = base.split(/\s+-\s+/);
+    if (dash.length >= 2) { artist = dash[0].trim(); title = dash.slice(1).join(' - ').trim(); }
+
+    player.src = URL.createObjectURL(audioFile);
+    player.volume = parseFloat(volumeSlider.value);
+
+    nowTitle.textContent  = title;
+    nowArtist.textContent = artist || 'Local file';
+    nowArt.style.opacity = '0';
+
+    genreHint = '';            // no genre metadata — rely on live audio analysis
+    currentMood = '';
+    moodCheckTimer = 9999;
+
+    lyrics = []; currentLyricIdx = -1;
+    clearLyrics();
+
+    // Lyrics: prefer an uploaded .lrc, else look up LRCLIB by guessed name
+    if (lrcFile) {
+      const txt = await lrcFile.text();
+      lyrics = parseLRC(txt);
+      lyricsStatus.textContent = `${lyrics.length} lyric lines (from file)`;
+      showToast(`♪ Loaded ${lyrics.length} lyric lines from .lrc`);
+    } else {
+      try {
+        const lrc = await fetchLyrics(artist, title, '', null);
+        if (lrc) {
+          lyrics = parseLRC(lrc);
+          lyricsStatus.textContent = `${lyrics.length} lyric lines synced`;
+          showToast(`♪ Lyrics found — ${lyrics.length} lines`);
+        } else {
+          lyricsStatus.textContent = 'No lyrics found';
+          showToast('♪ No lyrics found — name the file "Artist - Title" for better results');
+        }
+      } catch(e) { console.warn(e); }
+    }
+
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    try { await player.play(); setPlayState(true); }
+    catch(e) { showToast('Click play to start'); }
+
+    showLoading(false);
+  }
+
+  // ════════════════════════════════════════════════
+  // LRCLIB
+  // ════════════════════════════════════════════════
+  async function fetchLyrics(artist, title, album, duration) {
+    const params = new URLSearchParams({ artist_name: artist, track_name: title });
+    if (album)    params.set('album_name', album);
+    if (duration) params.set('duration', Math.round(duration));
+
+    try {
+      // Exact match
+      let res = await fetch(`https://lrclib.net/api/get?${params}`);
+      if (res.ok) {
+        const d = await res.json();
+        if (d.syncedLyrics) return d.syncedLyrics;
+        if (d.plainLyrics)  return null; // plain lyrics have no timestamps — skip
+      }
+
+      // Fuzzy search
+      res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(title + ' ' + artist)}`);
+      if (res.ok) {
+        const results = await res.json();
+        for (const r of results) {
+          if (r.syncedLyrics) return r.syncedLyrics;
+        }
+      }
+    } catch(e) {
+      console.warn('LRCLIB error:', e);
+    }
+    return null;
+  }
+
+  function parseLRC(lrc) {
+    const timeRe = /\[(\d{1,2}):(\d{2}(?:\.\d+)?)\]/g;
+    const result = [];
+
+    for (const rawLine of lrc.split('\n')) {
+      const text = rawLine.replace(/\[\d{1,2}:\d{2}(?:\.\d+)?\]/g, '').trim();
+      if (!text) continue;
+      timeRe.lastIndex = 0;
+      let m;
+      while ((m = timeRe.exec(rawLine)) !== null) {
+        result.push({ time: +m[1] * 60 + +m[2], text });
+      }
+    }
+
+    return result.sort((a,b) => a.time - b.time);
+  }
+
+  // ════════════════════════════════════════════════
+  // LYRIC DISPLAY
+  // ════════════════════════════════════════════════
+  const LYRIC_COLORS_LIST = [
+    '#ffffff', '#d4b8ff', '#80eaff', '#ffb3e6',
+    '#b3ffd6', '#ffd6b3', '#e8ffb3',
+  ];
+
+  // Track recently used to avoid repetition
+  let lastFont = -1, lastColor = -1, lastAnim = -1;
+
+  function pickRand(arr, lastIdx) {
+    let idx;
+    do { idx = Math.floor(Math.random() * arr.length); } while (idx === lastIdx && arr.length > 1);
+    return idx;
+  }
+
+  function clearLyrics() {
+    Array.from(lyricsStage.children).forEach(el => {
+      gsap.killTweensOf(el);
+      el.remove();
+    });
+    activeLyricEl = null;
+  }
+
+  function showLyric(text, bassVal) {
+    // Fade out previous
+    if (activeLyricEl) {
+      const old = activeLyricEl;
+      gsap.to(old, {
+        opacity: 0, duration: 0.55, ease: 'power2.in',
+        onComplete: () => old.remove(),
+      });
+    }
+
+    const el = document.createElement('div');
+    el.className = 'lyric-line';
+    el.textContent = text;
+
+    const fontIdx  = pickRand(LYRIC_FONTS, lastFont);
+    const colorIdx = pickRand(LYRIC_COLORS_LIST, lastColor);
+    const animIdx  = pickRand(LYRIC_ANIMS, lastAnim);
+    lastFont = fontIdx; lastColor = colorIdx; lastAnim = animIdx;
+
+    const font  = LYRIC_FONTS[fontIdx];
+    const color = LYRIC_COLORS_LIST[colorIdx];
+    const anim  = LYRIC_ANIMS[animIdx];
+    const size  = 22 + Math.random() * 42;
+    const fw    = [300, 400, 700, 900][Math.floor(Math.random() * 4)];
+
+    el.style.fontFamily   = font;
+    el.style.color        = color;
+    el.style.fontSize     = size + 'px';
+    el.style.fontWeight   = fw;
+    el.style.mixBlendMode = 'screen';
+    el.style.textShadow   = `0 0 30px ${color}, 0 0 80px ${color}, 0 0 2px rgba(255,255,255,0.5)`;
+    el.style.letterSpacing = Math.random() > 0.5 ? '0.08em' : '0.02em';
+
+    // Slight random position variance
+    const xOff = (Math.random() - 0.5) * 24;
+    const yOff = (Math.random() - 0.5) * 28;
+    el.style.left      = `calc(50% + ${xOff}%)`;
+    el.style.top       = `calc(50% + ${yOff}%)`;
+    el.style.transform = 'translate(-50%, -50%)';
+
+    lyricsStage.appendChild(el);
+    activeLyricEl = el;
+
+    // Entry animations
+    const dur   = 0.65;
+    const ease1 = 'back.out(1.6)';
+    const ease2 = 'power3.out';
+
+    if      (anim === 'scaleUp')    gsap.fromTo(el, { opacity:0, scale:0.2, rotate:-8  }, { opacity:1, scale:1, rotate:0, duration:dur, ease:ease1 });
+    else if (anim === 'slideLeft')  gsap.fromTo(el, { opacity:0, x:-180 }, { opacity:1, x:0, duration:dur, ease:ease2 });
+    else if (anim === 'slideRight') gsap.fromTo(el, { opacity:0, x: 180 }, { opacity:1, x:0, duration:dur, ease:ease2 });
+    else if (anim === 'slideUp')    gsap.fromTo(el, { opacity:0, y:  90 }, { opacity:1, y:0, duration:dur, ease:ease2 });
+    else if (anim === 'slideDown')  gsap.fromTo(el, { opacity:0, y: -90 }, { opacity:1, y:0, duration:dur, ease:ease2 });
+    else if (anim === 'spinIn')     gsap.fromTo(el, { opacity:0, scale:0.5, rotate:-25 }, { opacity:1, scale:1, rotate:0, duration:0.8, ease:ease1 });
+    else if (anim === 'glitch') {
+      gsap.fromTo(el, { opacity:0, skewX:12, x:-30 }, { opacity:1, skewX:0, x:0, duration:0.5, ease:'power4.out' });
+      gsap.fromTo(el, { filter:'hue-rotate(120deg)' }, { filter:'hue-rotate(0deg)', duration:0.4 });
+    }
+  }
+
+  function syncLyrics(t) {
+    if (!lyrics.length) return;
+    let idx = -1;
+    for (let i = 0; i < lyrics.length; i++) {
+      if (lyrics[i].time <= t) idx = i;
+      else break;
+    }
+    if (idx !== currentLyricIdx && idx >= 0) {
+      currentLyricIdx = idx;
+      showLyric(lyrics[idx].text, smoothBass);
+    }
+  }
+
+  function pulseLyrics(bass) {
+    if (!activeLyricEl) return;
+    const glow = 25 + bass * 55;
+    const col  = activeLyricEl.style.color || '#ffffff';
+    activeLyricEl.style.textShadow =
+      `0 0 ${glow}px ${col}, 0 0 ${glow*2}px ${col}, 0 0 2px rgba(255,255,255,0.4)`;
+  }
+
+  // ════════════════════════════════════════════════
+  // UI: AUTO-HIDE
+  // ════════════════════════════════════════════════
+  function showUI() {
+    uiPanel.classList.remove('hidden');
+    clearTimeout(uiHideTimer);
+    uiHideTimer = setTimeout(() => uiPanel.classList.add('hidden'), 3200);
+  }
+
+  document.addEventListener('mousemove', showUI);
+  document.addEventListener('touchstart', showUI);
+  showUI();
+
+  // ════════════════════════════════════════════════
+  // UI: SEARCH  (iTunes — no key needed)
+  // ════════════════════════════════════════════════
+  async function doSearch() {
+    const q = searchInput.value.trim();
+    if (!q) return;
+    showLoading(true);
+    try {
+      const tracks = await searchITunes(q);
+      renderResults(tracks);
+    } catch(e) {
+      showToast('Search failed — check your connection');
+    }
+    showLoading(false);
+  }
+
+  searchBtn.addEventListener('click', doSearch);
+  searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+  function renderResults(tracks) {
+    searchResults.innerHTML = '';
+    if (!tracks.length) {
+      searchResults.innerHTML = '<div style="padding:18px;color:rgba(255,255,255,0.35);text-align:center;font-size:13px">No results found</div>';
+      searchResults.classList.add('visible');
+      return;
+    }
+
+    tracks.forEach(t => {
+      const item = document.createElement('div');
+      item.className = 'track-item';
+      item.innerHTML = `
+        <img class="track-art" src="${t.image||''}" alt="" onerror="this.style.opacity='0'">
+        <div class="track-info">
+          <div class="track-name">${esc(t.name)}</div>
+          <div class="track-artist">${esc(t.artist_name)}</div>
+        </div>
+        <span class="track-duration">${fmtTime(t.duration)}</span>
+      `;
+      item.addEventListener('click', () => {
+        searchResults.classList.remove('visible');
+        loadTrack(t);
+      });
+      searchResults.appendChild(item);
+    });
+
+    searchResults.classList.add('visible');
+  }
+
+  document.addEventListener('click', e => {
+    if (!searchResults.contains(e.target) && e.target !== searchInput && e.target !== searchBtn) {
+      searchResults.classList.remove('visible');
+    }
+  });
+
+  // ════════════════════════════════════════════════
+  // UI: PLAYBACK
+  // ════════════════════════════════════════════════
+  playBtn.addEventListener('click', async () => {
+    if (!player.src) return;
+    if (!audioCtx) initAudio();
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    isPlaying ? player.pause() : player.play();
+  });
+
+  document.addEventListener('keydown', async e => {
+    if (e.code === 'Space' && document.activeElement !== searchInput) {
+      e.preventDefault();
+      if (!player.src) return;
+      if (!audioCtx) initAudio();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      isPlaying ? player.pause() : player.play();
+    }
+  });
+
+  player.addEventListener('play',  () => setPlayState(true));
+  player.addEventListener('pause', () => setPlayState(false));
+  player.addEventListener('ended', () => setPlayState(false));
+
+  function setPlayState(p) {
+    isPlaying = p;
+    playBtn.innerHTML = p
+      ? `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+      : `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+  }
+
+  player.addEventListener('timeupdate', () => {
+    if (!player.duration) return;
+    const pct = player.currentTime / player.duration;
+    progressFill.style.width = (pct * 100) + '%';
+    timeCurrent.textContent  = fmtTime(player.currentTime);
+    timeTotal.textContent    = fmtTime(player.duration);
+    syncLyrics(player.currentTime);
+  });
+
+  progressBar.addEventListener('click', e => {
+    if (!player.duration) return;
+    const rect = progressBar.getBoundingClientRect();
+    player.currentTime = ((e.clientX - rect.left) / rect.width) * player.duration;
+  });
+
+  volumeSlider.addEventListener('input', () => { player.volume = +volumeSlider.value; });
+
+  document.querySelectorAll('.theme-btn[data-theme]').forEach(b => b.addEventListener('click', () => {
+    autoMode = false;
+    document.getElementById('auto-btn').classList.remove('active');
+    setTheme(+b.dataset.theme);
+  }));
+
+  document.getElementById('auto-btn').addEventListener('click', () => {
+    autoMode = true;
+    document.getElementById('auto-btn').classList.add('active');
+    document.querySelectorAll('.theme-btn[data-theme]').forEach(b => b.classList.remove('active'));
+    currentMood = '';            // force re-pick
+    moodCheckTimer = 9999;
+    showToast('🎯 Auto mode — visuals follow the music');
+  });
+
+  // ════════════════════════════════════════════════
+  // HELPERS
+  // ════════════════════════════════════════════════
+  function showLoading(v) { loadingEl.classList.toggle('visible', v); }
+
+  let toastTmr;
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTmr);
+    toastTmr = setTimeout(() => toastEl.classList.remove('show'), 3200);
+  }
+
+  function fmtTime(s) {
+    if (!s || isNaN(s)) return '0:00';
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2,'0')}`;
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ════════════════════════════════════════════════
+  // ANIMATION LOOP
+  // ════════════════════════════════════════════════
+  let prevBassForRing = 0;
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    const { bass, mid, treble } = getFrequencies();
+
+    if (activeThemeObj) activeThemeObj.update(bass, mid, treble);
+
+    pulseLyrics(bass);
+
+    // Spawn ring bursts on bass hits
+    if (isPlaying) {
+      ringTimer -= 1;
+      const bassDelta = bass - prevBassForRing;
+      if (bassDelta > 0.12 && ringTimer <= 0) {
+        spawnRing(bass);
+        ringTimer = 20 + (1-bass)*30;
+      }
+      prevBassForRing = bass;
+
+      // Re-evaluate mood roughly every ~8s of playback
+      moodCheckTimer++;
+      if (moodCheckTimer > 480) { moodCheckTimer = 0; updateAutoMood(); }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // ════════════════════════════════════════════════
+  // INIT
+  // ════════════════════════════════════════════════
+  setTheme(0);
+  animate();
+  showToast('✦ Lumina — search any artist or song to begin');
+  </script>
+</body>
+</html>
